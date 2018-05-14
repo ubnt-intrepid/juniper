@@ -4,6 +4,7 @@
 //! You should not depend on juniper_codegen directly.
 //! You only need the `juniper` crate.
 
+#![feature(proc_macro)]
 #![recursion_limit = "1024"]
 
 extern crate proc_macro;
@@ -18,6 +19,7 @@ extern crate regex;
 mod derive_enum;
 mod derive_input_object;
 mod derive_object;
+mod derive_object_impl;
 mod util;
 
 use proc_macro::TokenStream;
@@ -40,5 +42,12 @@ pub fn derive_input_object(input: TokenStream) -> TokenStream {
 pub fn derive_object(input: TokenStream) -> TokenStream {
     let ast = syn::parse::<syn::DeriveInput>(input).unwrap();
     let gen = derive_object::impl_object(&ast);
+    gen.into()
+}
+
+#[proc_macro_attribute]
+pub fn gql_object(_metadata: TokenStream, input: TokenStream) -> TokenStream {
+    let ast = syn::parse::<syn::Item>(input).unwrap();
+    let gen = derive_object_impl::impl_gql_object(ast);
     gen.into()
 }
