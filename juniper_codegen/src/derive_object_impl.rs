@@ -236,7 +236,7 @@ pub fn impl_gql_object(ast: Item) -> Tokens {
         }
 
         fn concrete_type_name(&self, _: &Self::Context) -> String {
-          strin gify!(#name).to_string()
+          stringify!(#name).to_string()
         }
       }
     };
