@@ -4,7 +4,7 @@
 //! You should not depend on juniper_codegen directly.
 //! You only need the `juniper` crate.
 
-#![cfg_attr(any(test, feature = "nightly"), feature(proc_macro))]
+#![cfg_attr(feature = "nightly", feature(proc_macro))]
 #![recursion_limit = "1024"]
 
 extern crate proc_macro;
