@@ -1,11 +1,12 @@
-use quote::Tokens;
+use proc_macro::TokenStream;
 use std::collections::HashMap;
 use syn::{
-    parse, Attribute, FnArg, Ident, ImplItem, ImplItemMethod, Item, ItemImpl, Lit, Meta,
-    NestedMeta, ReturnType, Type, TypeReference,
+    parse, AngleBracketedGenericArguments, Attribute, Binding, FnArg, GenericArgument, Ident,
+    ImplItem, ImplItemMethod, Item, ItemImpl, Lit, Meta, NestedMeta, PathArguments, ReturnType,
+    Type, TypePath, TypeReference,
 };
 
-fn get_attr_map(attr: &Attribute) -> Option<(String, HashMap<String, String>)> {
+fn get_attr_map(attr: &Attribute) -> Option<(String, HashMap<String, Ident>)> {
     let meta = attr.interpret_meta();
 
     let meta_list = match meta {
@@ -26,7 +27,7 @@ fn get_attr_map(attr: &Attribute) -> Option<(String, HashMap<String, String>)> {
         let name = value.ident.to_string();
 
         let ident = match value.lit {
-            Lit::Str(ref string) => string.value(),
+            Lit::Str(ref string) => Ident::new(&string.value(), string.span()),
             _ => continue,
         };
 
@@ -36,7 +37,7 @@ fn get_attr_map(attr: &Attribute) -> Option<(String, HashMap<String, String>)> {
     Some((ident, attr_map))
 }
 
-pub fn impl_gql_object(ast: Item) -> Tokens {
+pub fn impl_gql_object(ast: Item) -> TokenStream {
     let ItemImpl {
         attrs,
         defaultness,
@@ -44,7 +45,7 @@ pub fn impl_gql_object(ast: Item) -> Tokens {
         impl_token,
         generics,
         trait_,
-        self_ty,
+        mut self_ty,
         mut items,
         brace_token,
     } = if let Item::Impl(imp) = ast {
@@ -53,18 +54,45 @@ pub fn impl_gql_object(ast: Item) -> Tokens {
         panic!("#[gql_object] Can only be applied to impl blocks");
     };
 
-    let (context, description) = if let Some((_, map)) = attrs
+    let (name, context) = if let Type::Path(TypePath { ref mut path, .. }) = *self_ty {
+        let context = {
+            let mut segment = path
+                .segments
+                .iter_mut()
+                .last()
+                .expect("Paths can't have 0 segments");
+            let context = if let PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+                                                                   ref args,
+                                                                   ..
+                                                               }) = segment.arguments
+                {
+                    args.iter().filter_map(|arg| {
+                        if let GenericArgument::Binding(Binding { ref ident, ref ty, .. }) = arg {
+                            if ident == "Context" {
+                                return Some(ty)
+                            }
+                        }
+                        None
+                    })
+                        .next()
+                        .map(|ty| ty.clone())
+                        .expect("#[gql_object] requires context to be specified with `impl MyType<Context=MyContext>`")
+                } else {
+                panic!("#[gql_object] requires context to be specified with `impl MyType<Context=MyContext>`");
+            };
+            segment.arguments = PathArguments::None;
+            context
+        };
+        (path.clone(), context)
+    } else {
+        panic!("#[gql_object] only works with struct impls");
+    };
+
+    let description = attrs
         .iter()
         .filter_map(get_attr_map)
         .find(|(name, _)| name == "graphql")
-    {
-        (
-            map.get("context").map(|st| Ident::from(st.clone())),
-            map.get("description").map(|i| i.to_string()),
-        )
-    } else {
-        (None, None)
-    };
+        .map(|(_, map)| map.get("description").map(|i| i.to_string()));
 
     let parsed: TypeReference = parse(quote!(&Executor<#context>).into()).unwrap();
 
@@ -77,18 +105,18 @@ pub fn impl_gql_object(ast: Item) -> Tokens {
             ImplItem::Verbatim(..) => panic!("Unexpected verbatim item"),
             ImplItem::Type(..) => panic!("Unexpected type item"),
             ImplItem::Method(ImplItemMethod {
-                sig, ref mut attrs, ..
-            }) => {
+                                 sig, ref mut attrs, ..
+                             }) => {
                 let (description, deprecated) = if let Some((_, map)) = attrs
                     .iter()
                     .filter_map(get_attr_map)
                     .find(|(name, _)| name == "graphql")
-                {
-                    (
-                        map.get("description").map(|i| i.to_string()),
-                        map.get("deprecated").map(|i| i.to_string()),
-                    )
-                } else {
+                    {
+                        (
+                            map.get("description").map(|i| i.to_string()),
+                            map.get("deprecated").map(|i| i.to_string()),
+                        )
+                    } else {
                     (None, None)
                 };
 
@@ -117,12 +145,10 @@ pub fn impl_gql_object(ast: Item) -> Tokens {
                     }
                 }
 
-                fns.push((sig.ident, fn_args, ret, description, deprecated));
+                fns.push((sig.ident.clone(), fn_args, ret, description, deprecated));
             }
         }
     }
-
-    let name = (*self_ty).clone();
 
     let item = Item::Impl(ItemImpl {
         attrs: Vec::new(),
@@ -199,7 +225,7 @@ pub fn impl_gql_object(ast: Item) -> Tokens {
         type Context = #context;
         type TypeInfo = ();
 
-        fn name(info: &<Self as GraphQLType>::TypeInfo) -> Option<&str> {
+        fn name(_: &Self::TypeInfo) -> Option<&str> {
           Some(stringify!(#name))
         }
 
@@ -224,7 +250,7 @@ pub fn impl_gql_object(ast: Item) -> Tokens {
         #[allow(unused_mut)]
         fn resolve_field(
           &self,
-          info: &(),
+          _info: &(),
           field: &str,
           args: &Arguments,
           executor: &Executor<Self::Context>,
@@ -240,8 +266,10 @@ pub fn impl_gql_object(ast: Item) -> Tokens {
       }
     };
 
-    quote! {
+    let res = quote! {
       #item
       #gql_impl
-    }
+    };
+
+    res.into()
 }
