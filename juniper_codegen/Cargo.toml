@@ -13,6 +13,9 @@ repository = "https://github.com/graphql-rust/juniper"
 [lib]
 proc-macro = true
 
+[features]
+nightly = []
+
 [dependencies]
 proc-macro2 = "0.4"
 syn = { version = "0.14", features = ["full", "extra-traits"] }

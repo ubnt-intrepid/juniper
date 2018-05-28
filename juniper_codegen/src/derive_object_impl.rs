@@ -1,9 +1,8 @@
-use proc_macro::TokenStream;
 use quote::Tokens;
 use std::collections::HashMap;
 use syn::{
     parse, Attribute, FnArg, Ident, ImplItem, ImplItemMethod, Item, ItemImpl, Lit, Meta,
-    NestedMeta, Pat, ReturnType, Type, TypeReference,
+    NestedMeta, ReturnType, Type, TypeReference,
 };
 
 fn get_attr_map(attr: &Attribute) -> Option<(String, HashMap<String, String>)> {

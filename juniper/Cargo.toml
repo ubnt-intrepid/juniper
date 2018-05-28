@@ -23,7 +23,7 @@ harness = false
 path = "benches/bench.rs"
 
 [features]
-nightly = []
+nightly = ["juniper_codegen/nightly"]
 expose-test-schema = []
 default = [
     "chrono",
