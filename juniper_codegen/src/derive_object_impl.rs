@@ -1,12 +1,12 @@
 use proc_macro::TokenStream;
 use std::collections::HashMap;
 use syn::{
-    parse, AngleBracketedGenericArguments, Attribute, Binding, FnArg, GenericArgument, Ident,
+    parse, AngleBracketedGenericArguments, Attribute, Binding, FnArg, GenericArgument,
     ImplItem, ImplItemMethod, Item, ItemImpl, Lit, Meta, NestedMeta, PathArguments, ReturnType,
     Type, TypePath, TypeReference,
 };
 
-fn get_attr_map(attr: &Attribute) -> Option<(String, HashMap<String, Ident>)> {
+fn get_attr_map(attr: &Attribute) -> Option<(String, HashMap<String, String>)> {
     let meta = attr.interpret_meta();
 
     let meta_list = match meta {
@@ -27,7 +27,7 @@ fn get_attr_map(attr: &Attribute) -> Option<(String, HashMap<String, Ident>)> {
         let name = value.ident.to_string();
 
         let ident = match value.lit {
-            Lit::Str(ref string) => Ident::new(&string.value(), string.span()),
+            Lit::Str(ref string) => string.value(),
             _ => continue,
         };
 
@@ -92,7 +92,7 @@ pub fn impl_gql_object(ast: Item) -> TokenStream {
         .iter()
         .filter_map(get_attr_map)
         .find(|(name, _)| name == "graphql")
-        .map(|(_, map)| map.get("description").map(|i| i.to_string()));
+        .map(|(_, map)| map.get("description").map(|i| i.clone()));
 
     let parsed: TypeReference = parse(quote!(&Executor<#context>).into()).unwrap();
 
@@ -113,8 +113,8 @@ pub fn impl_gql_object(ast: Item) -> TokenStream {
                     .find(|(name, _)| name == "graphql")
                     {
                         (
-                            map.get("description").map(|i| i.to_string()),
-                            map.get("deprecated").map(|i| i.to_string()),
+                            map.get("description").map(|i| i.clone()),
+                            map.get("deprecated").map(|i| i.clone()),
                         )
                     } else {
                     (None, None)
@@ -165,21 +165,21 @@ pub fn impl_gql_object(ast: Item) -> TokenStream {
     let exec_fns = fns.iter().map(|(name, args, _, _, _)| {
         let get_args = args.iter().map(|(arg_name, arg_type)| {
             quote! {
-              let #arg_name: #arg_type = args.get(&to_camel_case(stringify!(#arg_name))).expect("Argument missing - validation must have failed");
+              let #arg_name: #arg_type = args.get(&juniper::to_camel_case(stringify!(#arg_name))).expect("Argument missing - validation must have failed");
             }
         });
 
         let arg_names = args.iter().map(|(name, _)| name);
 
         quote! {
-          if field == &to_camel_case(stringify!(#name)) {
+          if field == &juniper::to_camel_case(stringify!(#name)) {
             #(#get_args)*
 
             let result = Self::#name(&executor, #( #arg_names ),*);
-            return (IntoResolvable::into(result, executor.context())).and_then(|res|
+            return (juniper::IntoResolvable::into(result, executor.context())).and_then(|res|
                 match res {
                   Some((ctx, r)) => executor.replaced_context(ctx).resolve_with_ctx(&(), &r),
-                  None => Ok(Value::null()),
+                  None => Ok(juniper::Value::null()),
                 });
           }
         }
@@ -190,7 +190,7 @@ pub fn impl_gql_object(ast: Item) -> TokenStream {
         .map(|(name, args, ret, description, deprecation)| {
             let args = args.iter().map(|(arg_name, arg_type)| {
                 quote! {
-                  .argument(registry.arg::<#arg_type>(&to_camel_case(stringify!(#arg_name)), info))
+                  .argument(registry.arg::<#arg_type>(&juniper::to_camel_case(stringify!(#arg_name)), info))
                 }
             });
 
@@ -207,7 +207,7 @@ pub fn impl_gql_object(ast: Item) -> TokenStream {
             quote! {
               fields.push(
                 registry
-                    .field_convert::<#ret, _, Self::Context>(&to_camel_case(stringify!(#name)), info)
+                    .field_convert::<#ret, _, Self::Context>(&juniper::to_camel_case(stringify!(#name)), info)
                     #(#args)*
                     #description
                     #deprecation
@@ -221,7 +221,7 @@ pub fn impl_gql_object(ast: Item) -> TokenStream {
     };
 
     let gql_impl = quote! {
-      impl GraphQLType for #name {
+      impl juniper::GraphQLType for #name {
         type Context = #context;
         type TypeInfo = ();
 
@@ -231,7 +231,7 @@ pub fn impl_gql_object(ast: Item) -> TokenStream {
 
         #[allow(unused_assignments)]
         #[allow(unused_mut)]
-        fn meta<'r>(info: &Self::TypeInfo, registry: &mut Registry<'r>) -> MetaType<'r> {
+        fn meta<'r>(info: &Self::TypeInfo, registry: &mut juniper::Registry<'r>) -> juniper::meta::MetaType<'r> {
           let mut fields = Vec::new();
           let mut interfaces: Option<Vec<Type>> = None;
           #(#register_fns)*
@@ -252,15 +252,15 @@ pub fn impl_gql_object(ast: Item) -> TokenStream {
           &self,
           _info: &(),
           field: &str,
-          args: &Arguments,
-          executor: &Executor<Self::Context>,
+          args: &juniper::Arguments,
+          executor: &juniper::Executor<Self::Context>,
         ) -> ExecutionResult {
           #(#exec_fns)*
 
           panic!("Field {} not found on type {}", field, "Mutation");
         }
 
-        fn concrete_type_name(&self, _: &Self::Context) -> String {
+        fn concrete_type_name(&self, _: &Self::Context, _: &Self::TypeInfo) -> String {
           stringify!(#name).to_string()
         }
       }
