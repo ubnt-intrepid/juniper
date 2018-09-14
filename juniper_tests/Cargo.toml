@@ -14,3 +14,6 @@ indexmap = "1.0"
 name = "integration_tests"
 path = "src/lib.rs"
 harness = true
+
+[features]
+nightly = ["juniper/nightly"]
